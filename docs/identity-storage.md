@@ -44,6 +44,8 @@ The identity stop command shares the precise process matcher with CLI maintenanc
 
 Run native regressions with `cargo test --manifest-path src-tauri/Cargo.toml`. They use temporary accounts and files, including repeated A/B switching, token refresh, organization isolation, rejected updates, interrupted recovery and v1 gzip migration.
 
+The `portable_root_backups_import_when_source_home_is_absent` regression exports root configuration backups, moves the entire source home out of reach and imports into a different user's temporary home. It checks that import preserves the current identity, existing archive, vault key and browser selection, then verifies backup/history recovery after an explicit switch. Restoring only the v0.2.49 path-permission function reproduces the validation rejection; the fixed rule passes the [macOS, Ubuntu and Windows checks](https://github.com/liseami/CCBaga/actions/runs/40651090806).
+
 Run the optional synthetic measurement with:
 
 ```sh
