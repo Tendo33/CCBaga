@@ -1,5 +1,5 @@
 // [INPUT]: 可丢弃身份目录、合成令牌/密钥、认证迁移流和 SQLite 故障触发器。
-// [OUTPUT]: 同 OS 重定位/本机重封存、密码/成员/长度/认证拒绝、一次性文件选择与失败不覆写回归。
+// [OUTPUT]: 源 home 不存在时的备份跨机导入/重定位/本机重封存、密码/成员/长度/认证拒绝、一次性文件选择与失败不覆写回归。
 // [POS]: portable 的离线攻防证明；不操作真实 Claude、钥匙串、浏览器或网络。
 // [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 use super::*;
@@ -82,6 +82,66 @@ fn portable_round_trip_relocates_and_reencrypts_without_switching_or_exporting_s
     assert_eq!(destination.token(), "keep-live-token");
     assert_eq!(fs::read(destination.vault.join("key.bin")).unwrap(), master);
     assert!(codec::Open::new(fs::File::open(destination.vault.join(&row.archive)).unwrap(), &source.key).is_err());
+}
+
+#[test]
+fn portable_root_backups_import_when_source_home_is_absent() {
+    let (origin, mut source, _) = saved();
+    let backups = [".claude.json.backup", ".claude.json.backup.123"];
+    for name in backups { origin.write(name, b"synthetic-config-backup"); }
+    let reporter = Reporter::channel(None);
+    source.save_current("Portable A", &Policy::default(), &reporter).unwrap();
+    let original = source.records()[0].clone();
+    let pack = origin.root.join("offline-source.bagapack");
+    source.export_pack(&pack, PASSWORD, &original.id, None, &reporter).unwrap();
+    let bytes = fs::read(pack).unwrap();
+    assert_eq!(&bytes[..8], b"BAGAP001");
+
+    let mut destination = Fixture::new();
+    let previous_home = destination.home.clone();
+    destination.home = destination.root.join("different-user");
+    fs::rename(previous_home, &destination.home).unwrap();
+    destination.login("existing-B", "other-org", "keep-live-token");
+    destination.write(".claude/skills/keep", b"keep-local-skill");
+    let mut target = Store::open(&destination.vault, &destination.home).unwrap();
+    target.save_current("Existing B", &Policy::default(), &reporter).unwrap();
+    let existing = target.records()[0].clone();
+    let existing_archive = fs::read(destination.vault.join(&existing.archive)).unwrap();
+    let active = target.db.get("active").unwrap();
+    let browser_slot = target.db.browser_slot().unwrap();
+    let key = fs::read(destination.vault.join("key.bin")).unwrap();
+
+    // ----- 模拟接收电脑没有源用户目录，不能靠同机夹具中的源文件通过白名单 -----
+    fs::rename(&origin.home, origin.root.join("detached-source-home")).unwrap();
+    assert!(!origin.home.exists());
+    for name in backups { assert!(!destination.home.join(name).exists()); }
+    let imported = read_pack(&bytes, PASSWORD, &destination.root).unwrap();
+    let row = target.import_pack(imported, None, &reporter).unwrap();
+    assert_eq!(target.records().len(), 2);
+    assert_ne!(row.id, original.id);
+    assert_ne!(row.account_key, original.account_key);
+    assert_eq!(target.db.get("active").unwrap(), active);
+    assert_eq!(target.db.browser_slot().unwrap(), browser_slot);
+    assert_eq!(destination.token(), "keep-live-token");
+    assert_eq!(fs::read(destination.vault.join("key.bin")).unwrap(), key);
+    assert_eq!(fs::read(destination.vault.join(&existing.archive)).unwrap(), existing_archive);
+    let stage = target.load(&row).unwrap();
+    assert_eq!(stage.manifest.home, destination.home);
+    for name in backups {
+        let n = stage.manifest.sources.iter().position(|s| s.path == destination.home.join(name)).unwrap();
+        assert_eq!(fs::read(stage.path.join(format!("data/{n}"))).unwrap(), b"synthetic-config-backup");
+        assert!(!destination.home.join(name).exists());
+    }
+    drop(stage);
+
+    // ----- 只有显式切换才恢复导入资料；本机已有身份与共享技能继续保留 -----
+    target.switch(&row.id, "Existing B", &Policy::default(), &reporter).unwrap();
+    for name in backups { assert_eq!(fs::read(destination.home.join(name)).unwrap(), b"synthetic-config-backup"); }
+    assert_eq!(destination.token(), "synthetic-token");
+    assert_eq!(fs::read(destination.home.join(".claude/history.jsonl")).unwrap(), b"synthetic-history");
+    assert_eq!(fs::read(destination.home.join(".claude/skills/keep")).unwrap(), b"keep-local-skill");
+    assert!(target.records().iter().any(|r| r.id == existing.id));
+    assert!(!origin.home.exists());
 }
 
 #[test]

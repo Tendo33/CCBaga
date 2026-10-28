@@ -1,6 +1,6 @@
 <!--
 [INPUT]: 原生保险库的保留策略、事务/进程/浏览器边界与显式密码迁移。
-[OUTPUT]: 身份保存、恢复与同系统跨设备迁移的真实能力和限制。
+[OUTPUT]: 身份保存、恢复与同系统跨设备迁移的真实能力和限制，以及 v0.2.49 根备份跨机验收失败的版本处理。
 [POS]: README 与使用指南的存储契约，不包含真实账号或凭据。
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 -->
@@ -75,6 +75,8 @@ Use **Export** on a saved card or the current card’s saved backup, select a ne
 Import only your own backups or files from a source you trust. Password encryption and archive validation protect integrity; they do not establish the sender’s identity or sanitize hooks, plugins, MCP servers or other executable configuration. Import itself does not execute them, but restoring and later running Claude can.
 
 On the other device, use **Import**, select the package and enter the same password. Imports require the same operating system. The package is fully authenticated and checked against the native path/member whitelist before a new local archive is committed. The new device re-encrypts it using its own vault key and derives its own account matching digest. Existing identities and browser bindings are never overwritten; duplicate recognized accounts or conflicting fingerprint settings are rejected. Import does not switch the current identity, open a browser or access the live Keychain. A failed import leaves existing saved identities intact.
+
+**Cross-device imports from v0.2.49:** A snapshot containing root-level `.claude.json.backup` or `.claude.json.backup.*` files can fail immediately during validation when the source home directory does not exist on the receiving computer. The old whitelist depended on discovering those files on disk. [v0.2.50](https://github.com/liseami/CCBaga/releases/tag/v0.2.50) validates these backup paths independently of disk contents. Upgrade the receiving application to v0.2.50 or later and import the existing package with its original password; this fix does not require re-exporting or changing the package format. This reproduces the symptom in [Issue #69](https://github.com/liseami/CCBaga/issues/69); a failure that persists on the updated receiver needs separate diagnosis.
 
 Browser transfer is available only for a saved identity with an existing browser binding; saving an unbound draft does not establish that binding. The optional browser transfer carries only the fingerprint seed and environment/display settings. It excludes cookies, website passwords, site sessions, explicit proxy settings and OS-protected browser keys. Website sign-in is still required. Windows Desktop may also require signing in again because OS/DPAPI-bound data is not re-keyed for the new device; a successful file import does not validate the transferred login. Historical file contents and project paths are not rewritten, so references to paths on the old computer may need adjustment. The local vault key, SQLite database and recovery log are never exported.
 
